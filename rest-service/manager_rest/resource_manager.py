@@ -63,6 +63,8 @@ from manager_rest.rest.rest_utils import (
     verify_blueprint_uploaded_state,
     compute_rule_from_scheduling_params,
     get_component_creator_ids,
+    get_deployment_dependencies,
+    format_deployment_dependencies,
 )
 from manager_rest.deployment_update.constants import STATES as UpdateStates
 from manager_rest.plugins_update.constants import STATES as PluginsUpdateStates
@@ -2391,18 +2393,18 @@ class ResourceManager(object):
         )
         excluded_ids = self._excluded_component_creator_ids(
             execution.deployment)
-        deployment_dependencies = \
-            dep_graph.retrieve_and_display_dependencies(
-                execution.deployment.id,
-                excluded_component_creator_ids=excluded_ids)
+        deployment_dependencies = get_deployment_dependencies(
+            execution.deployment, excluded_ids)
         if not deployment_dependencies:
             return
+        formatted_dependencies = format_deployment_dependencies(
+            deployment_dependencies)
         if force:
             current_app.logger.warning(
                 "Force-executing workflow `%s` on deployment %s despite "
                 "having existing dependent installations:\n%s",
                 execution.workflow_id, execution.deployment.id,
-                deployment_dependencies)
+                formatted_dependencies)
             return
         # If part of a deployment update - mark the update as failed
         if execution.workflow_id == 'update':
@@ -2419,7 +2421,7 @@ class ResourceManager(object):
         raise manager_exceptions.DependentExistsError(
             f"Can't execute workflow `{execution.workflow_id}` on deployment "
             f"{execution.deployment.id} - existing installations depend "
-            f"on it:\n{deployment_dependencies}")
+            f"on it:\n{formatted_dependencies}")
 
     def _excluded_component_creator_ids(self, deployment):
         """Deployments that should be excluded from the dependency check.

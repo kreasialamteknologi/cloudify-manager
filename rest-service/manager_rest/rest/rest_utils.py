@@ -609,6 +609,53 @@ class RecursiveDeploymentDependencies(BaseDeploymentDependencies):
 _IDD = models.InterDeploymentDependencies  # convenience shorthand
 
 
+def get_deployment_dependencies(deployment: models.Deployment,
+                                excluded_ids: List[int]=None) -> List[_IDD]:
+    base = (
+        db.session.query(_IDD)
+        .filter(_IDD._target_deployment == deployment._storage_id)
+        .cte(name='recursive_dependencies', recursive=True)
+    )
+
+    dependencies = base.union_all(
+        db.session.query(_IDD)
+        .join(base, _IDD._target_deployment == base.c._source_deployment)
+    )
+    query = db.session.query(_IDD).select_from(dependencies)
+    if excluded_ids:
+        query = query.filter(~_IDD._source_deployment.in_(excluded_ids))
+    return query.all()
+
+
+def _format_deployment_dependencies(dependencies):
+    deployment_ids = [d._source_deployment for d in dependencies]
+    deployments = (
+        db.session.query(models.Deployment)
+        .filter(models.Deployment._storage_id.in_(deployment_ids))
+        .all()
+    )
+    deployments_by_id = {d._storage_id: d for d in deployments}
+    type_display = {'component': 'contains',
+                    'sharedresource': 'uses a shared resource from',
+                    'deployment': 'uses capabilities of'}
+    for i, dependency in enumerate(dependencies, 1):
+        dep_creator = dependency.dependency_creator.split('.')
+        dep_type = dep_creator[0] \
+            if dep_creator[0] in ['component', 'sharedresource'] \
+            else 'deployment'
+        dep_node = dep_creator[1]
+        deployment_name = deployments_by_id[dependency._source_deployment].id
+        type_message = type_display[dep_type]
+        yield (
+            f'  [{i}] Deployment `{deployment_name}` {type_message} the '
+            f'current deployment in its node `{dep_node}`'
+        )
+
+
+def format_deployment_dependencies(dependencies):
+    return '\n'.join(_format_deployment_dependencies(dependencies))
+
+
 def get_component_creator_ids(deployment: models.Deployment) -> List[int]:
     """Storage IDs of deployments that are component creators of deployment.
 
