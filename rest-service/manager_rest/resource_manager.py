@@ -763,20 +763,26 @@ class ResourceManager(object):
                 ExecutionState.ACTIVE_STATES + ExecutionState.QUEUED_STATE
             )
         }, get_all_results=True)
-        deployment_dependencies = self.retrieve_and_display_dependencies(
-            deployment)
+
+        # Verify deleting the deployment won't affect dependent deployments
+        excluded_ids = self._excluded_component_creator_ids(deployment)
+        deployment_dependencies = get_deployment_dependencies(
+            deployment, excluded_ids)
+
         if deployment_dependencies:
+            formatted_dependencies = format_deployment_dependencies(
+                deployment_dependencies)
             if force:
                 current_app.logger.warning(
                     "Force-deleting deployment %s despite having the "
                     "following existing dependent installations\n%s",
-                    deployment.id, deployment_dependencies
+                    deployment.id, formatted_dependencies
                 )
             else:
                 raise manager_exceptions.DependentExistsError(
                     f"Can't delete deployment {deployment.id} - the following "
                     f"existing installations depend on it:\n"
-                    f"{deployment_dependencies}"
+                    f"{formatted_dependencies}"
                 )
         if executions:
             running_ids = ','.join(
