@@ -13,6 +13,7 @@ import os
 import pytz
 import string
 import uuid
+from typing import List
 
 from retrying import retry
 from flask_security import current_user
@@ -35,6 +36,8 @@ from cloudify.models_states import (
 
 from manager_rest.storage import db, models
 from manager_rest.constants import RESERVED_LABELS, RESERVED_PREFIX
+from manager_rest.storage import models, db
+from manager_rest.constants import CFY_LABELS, CFY_LABELS_PREFIX
 from manager_rest.dsl_functions import (get_secret_method,
                                         evaluate_intrinsic_functions)
 from manager_rest import manager_exceptions, config, app_context
@@ -602,6 +605,38 @@ class RecursiveDeploymentDependencies(BaseDeploymentDependencies):
                                        d['dependent_node'])
              for i, d in enumerate(dependencies)])
 
+
+_IDD = models.InterDeploymentDependencies  # convenience shorthand
+
+
+def get_component_creator_ids(deployment: models.Deployment) -> List[int]:
+    """Storage IDs of deployments that are component creators of deployment.
+
+    Those are deployments, that created the given deployment as a component,
+    recursing through the tree, ie. if also return the creator's creator, etc.
+    Returned as storage IDs.
+    """
+    base = (
+        db.session.query(
+            _IDD.dependency_creator,
+            _IDD._source_deployment,
+            _IDD._target_deployment,
+        )
+        .filter(_IDD._target_deployment == deployment._storage_id)
+        .filter(_IDD.dependency_creator.contains('.component.'))
+        .cte(name='recursive_dependencies', recursive=True)
+    )
+
+    dependencies = db.session.query(base.union_all(
+        db.session.query(
+            _IDD.dependency_creator,
+            _IDD._source_deployment,
+            _IDD._target_deployment,
+        )
+        .join(base, _IDD._target_deployment == base.c._source_deployment)
+        .filter(_IDD.dependency_creator.contains('.component.'))
+    ))
+    return [dep._target_deployment for dep in dependencies.all()]
 
 class RecursiveDeploymentLabelsDependencies(BaseDeploymentDependencies):
     cyclic_error_message = 'Deployments adding labels results in ' \

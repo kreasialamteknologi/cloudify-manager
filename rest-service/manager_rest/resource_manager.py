@@ -62,6 +62,7 @@ from manager_rest.rest.rest_utils import (
     update_inter_deployment_dependencies,
     verify_blueprint_uploaded_state,
     compute_rule_from_scheduling_params,
+    get_component_creator_ids,
 )
 from manager_rest.deployment_update.constants import STATES as UpdateStates
 from manager_rest.plugins_update.constants import STATES as PluginsUpdateStates
@@ -2421,33 +2422,19 @@ class ResourceManager(object):
             f"on it:\n{deployment_dependencies}")
 
     def _excluded_component_creator_ids(self, deployment):
-        # collect all deployment which created this deployment as a
-        # component, accounting for nesting component creation
-        component_creator_deployments = []
-        component_deployment = deployment
-        while True:
-            creator_deployment = None
-            for d in component_deployment.target_of_dependency_in:
-                if 'component' in d.dependency_creator.split('.'):
-                    creator_deployment = d.source_deployment
-                    component_creator_deployments.append(creator_deployment)
-                    component_deployment = creator_deployment
-                    break  # a depl. can be a component for only one depl.
-            if not creator_deployment:
-                break
+        """Deployments that should be excluded from the dependency check.
 
-        active_component_creator_deployment_ids = []
-        for deployment in component_creator_deployments:
-            component_creator_executions = self.sm.list(
-                models.Execution, filters={
-                    'deployment_id': deployment.id,
-                    'status': 'started',
-                    'workflow_id': ['stop', 'uninstall', 'update']}
-            )
-            if component_creator_executions:
-                active_component_creator_deployment_ids.append(deployment.id)
-
-        return active_component_creator_deployment_ids
+        Deployments that created the given deployment as a component are
+        excluded if they are currently running a destructive workflow.
+        (then, the given workflow should be allowed to run one too)
+        """
+        component_creator_executions = self.sm.list(
+            models.Execution, filters={
+                '_deployment_fk': get_component_creator_ids(deployment),
+                'status': 'started',
+                'workflow_id': ['stop', 'uninstall', 'update']}
+        )
+        return [exc.dep.id for exc in component_creator_executions]
 
     def _workflow_queued(self, execution):
         execution.status = ExecutionState.QUEUED
