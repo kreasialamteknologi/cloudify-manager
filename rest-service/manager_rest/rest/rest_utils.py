@@ -37,7 +37,6 @@ from cloudify.models_states import (
 from manager_rest.storage import db, models
 from manager_rest.constants import RESERVED_LABELS, RESERVED_PREFIX
 from manager_rest.storage import models, db
-from manager_rest.constants import CFY_LABELS, CFY_LABELS_PREFIX
 from manager_rest.dsl_functions import (get_secret_method,
                                         evaluate_intrinsic_functions)
 from manager_rest import manager_exceptions, config, app_context
@@ -385,12 +384,10 @@ def update_deployment_dependencies_from_plan(deployment_id,
         for creator, target in new_dependencies.items()
         if dep_plan_filter_func(creator)
     }
-    dep_graph = RecursiveDeploymentDependencies(storage_manager)
-    dep_graph.create_dependencies_graph()
-
     source_deployment = storage_manager.get(models.Deployment,
                                             deployment_id,
                                             all_tenants=True)
+    dependents = source_deployment.get_all_dependents()
     for dependency_creator, target_deployment_attr \
             in new_dependencies_dict.items():
         target_deployment_id = target_deployment_attr[0]
@@ -427,13 +424,10 @@ def update_deployment_dependencies_from_plan(deployment_id,
                 or not hasattr(curr_target_deployment, 'id')):
             continue
             # upcoming: handle the case of external dependencies
-        source_id = source_deployment.id
-        target_id = target_deployment.id
-        old_target_id = curr_target_deployment.id
-        dep_graph.assert_no_cyclic_dependencies(source_id, target_id)
-        if target_deployment not in new_dependencies_dict.values():
-            dep_graph.remove_dependency_from_graph(source_id, old_target_id)
-        dep_graph.add_dependency_to_graph(source_id, target_id)
+        if target_deployment._storage_id in dependents:
+            raise manager_exceptions.ConflictError(
+                f'cyclic dependency between {source_deployment.id} '
+                f'and {target_deployment.id}')
     return new_dependencies_dict
 
 
@@ -628,13 +622,6 @@ def get_deployment_dependencies(deployment: models.Deployment,
 
 
 def _format_deployment_dependencies(dependencies):
-    deployment_ids = [d._source_deployment for d in dependencies]
-    deployments = (
-        db.session.query(models.Deployment)
-        .filter(models.Deployment._storage_id.in_(deployment_ids))
-        .all()
-    )
-    deployments_by_id = {d._storage_id: d for d in deployments}
     type_display = {'component': 'contains',
                     'sharedresource': 'uses a shared resource from',
                     'deployment': 'uses capabilities of'}

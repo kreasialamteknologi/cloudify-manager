@@ -611,6 +611,16 @@ class TestDeploymentDependencies(unittest.TestCase):
                                  '.get_resource_manager')
         self.mock_get_rm.start()
         self.mock_sm = MagicMock()
+        self.mock_deployments = {
+            'test_deployment_id': MagicMock(),
+            'target_1': MagicMock(),
+            'target_new': MagicMock(),
+            'target_old': MagicMock(),
+        }
+        self.mock_deployments['test_deployment_id'].id = 'test_deployment_id'
+        def side_effect(model, element_id, *args, **kwargs):
+            return self.mock_deployments[element_id]
+        self.mock_sm.get = MagicMock(side_effect=side_effect)
         self.handler = handlers.DeploymentDependencies(self.mock_sm)
         self.mock_inter_deployment_dependency = patch(
             'manager_rest.storage.models.InterDeploymentDependencies')
@@ -759,19 +769,16 @@ class TestDeploymentDependencies(unittest.TestCase):
         def side_effect(*args, **kwargs):
             return get_dict[args]
 
-        self.mock_sm.get = MagicMock(side_effect=side_effect)
+        # self.mock_sm.get = MagicMock(side_effect=side_effect)
         self.mock_dep_update.deployment_plan[
             INTER_DEPLOYMENT_FUNCTIONS] = dependency_creating_functions
         self.handler._handle_dependency_changes(
             self.mock_dep_update,
             {},
             dep_plan_filter_func=ignores_ignore_me)
-        put_calls = self._as_calls(
-            [
-                self._build_mock_dependency(
-                    'creator_2', 'target_1', 'target_1')
-            ]
-        )
+        put_mock_dependency = self._build_mock_dependency(
+            'creator_2', 'target_1', 'target_1')
+        put_calls = self._as_calls([put_mock_dependency])
         update_calls = self._as_calls(
             [
                 self._build_mock_dependency(

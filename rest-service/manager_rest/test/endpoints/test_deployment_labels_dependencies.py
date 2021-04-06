@@ -54,28 +54,6 @@ class DeploymentLabelsDependenciesTest(BaseServerTestCase):
             ]
         )
 
-    @patch('manager_rest.resource_manager.ResourceManager'
-           '.handle_deployment_labels_graph')
-    @patch('manager_rest.resource_manager.ResourceManager'
-           '.verify_attaching_deployment_to_parents')
-    def test_deployment_with_empty_labels(self,
-                                          verify_parents_mock,
-                                          handle_labels_graph_mock):
-        self.put_deployment('deployment_with_no_labels')
-        verify_parents_mock.assert_not_called()
-        handle_labels_graph_mock.assert_not_called()
-
-    @patch('manager_rest.resource_manager.ResourceManager'
-           '.handle_deployment_labels_graph')
-    @patch('manager_rest.resource_manager.ResourceManager'
-           '.verify_attaching_deployment_to_parents')
-    def test_deployment_with_non_parent_labels(self,
-                                               verify_parents_mock,
-                                               handle_labels_graph_mock):
-        self.put_deployment_with_labels([{'env': 'aws'}, {'arch': 'k8s'}])
-        verify_parents_mock.assert_not_called()
-        handle_labels_graph_mock.assert_not_called()
-
     def test_deployment_with_single_parent_label(self):
         self.put_deployment('parent')
         self.put_deployment_with_labels([{'csys-obj-parent': 'parent'}])
@@ -124,8 +102,7 @@ class DeploymentLabelsDependenciesTest(BaseServerTestCase):
         self.assertEqual(deployment_2.sub_environments_count, 0)
 
     def test_deployment_with_invalid_parent_label(self):
-        error_message = 'label `csys-obj-parent` that does not exist'
-        with self.assertRaisesRegex(CloudifyClientError, error_message):
+        with self.assertRaises(CloudifyClientError) as cm:
             self.put_deployment_with_labels(
                 [
                     {
@@ -134,11 +111,11 @@ class DeploymentLabelsDependenciesTest(BaseServerTestCase):
                 ],
                 resource_id='invalid_label_dep'
             )
+        self.assertEqual(cm.exception.status_code, 404)
 
     def test_deployment_with_valid_and_invalid_parent_labels(self):
         self.put_deployment(deployment_id='parent_1')
-        error_message = 'label `csys-obj-parent` that does not exist'
-        with self.assertRaisesRegex(CloudifyClientError, error_message):
+        with self.assertRaises(CloudifyClientError) as cm:
             self.put_deployment_with_labels(
                 [
                     {
@@ -150,6 +127,7 @@ class DeploymentLabelsDependenciesTest(BaseServerTestCase):
                 ],
                 resource_id='invalid_label_dep'
             )
+        self.assertEqual(cm.exception.status_code, 404)
 
     def test_add_valid_label_parent_to_created_deployment(self):
         self.put_deployment(deployment_id='parent_1',
@@ -176,13 +154,12 @@ class DeploymentLabelsDependenciesTest(BaseServerTestCase):
         self.assertEqual(deployment_2.sub_environments_count, 0)
 
     def test_add_invalid_label_parent_to_created_deployment(self):
-        error_message = 'label `csys-obj-parent` that does not exist'
         self.put_deployment(deployment_id='parent_1',
                             blueprint_id='blueprint_1')
         self.put_deployment_with_labels([{'csys-obj-parent': 'parent_1'}],
                                         resource_id='invalid_label_dep')
 
-        with self.assertRaisesRegex(CloudifyClientError, error_message):
+        with self.assertRaises(CloudifyClientError) as cm:
             self.client.deployments.update_labels('invalid_label_dep', [
                     {
                         'csys-obj-parent': 'parent_1'
@@ -192,9 +169,9 @@ class DeploymentLabelsDependenciesTest(BaseServerTestCase):
                     }
                 ]
             )
+        self.assertEqual(cm.exception.status_code, 404)
 
     def test_cyclic_dependencies_between_deployments(self):
-        error_message = 'cyclic deployment-labels dependencies.'
         self.put_deployment(deployment_id='deployment_1',
                             blueprint_id='deployment_1')
         self.put_deployment_with_labels(
@@ -205,7 +182,7 @@ class DeploymentLabelsDependenciesTest(BaseServerTestCase):
             ],
             resource_id='deployment_2'
         )
-        with self.assertRaisesRegex(CloudifyClientError, error_message):
+        with self.assertRaisesRegex(CloudifyClientError, 'cyclic'):
             self.client.deployments.update_labels('deployment_1', [
                 {
                     'csys-obj-parent': 'deployment_2'

@@ -19,6 +19,7 @@ from mock import patch
 from cloudify_rest_client.exceptions import CloudifyClientError
 from cloudify.deployment_dependencies import create_deployment_dependency
 
+from manager_rest.storage import models
 from manager_rest.manager_exceptions import NotFoundError, ConflictError
 from manager_rest.rest.rest_utils import RecursiveDeploymentDependencies
 
@@ -41,15 +42,12 @@ class InterDeploymentDependenciesTest(BaseServerTestCase):
         self.put_mock_deployments(self.source_deployment,
                                   self.target_deployment)
 
-    @patch('manager_rest.rest.rest_utils.RecursiveDeploymentDependencies'
-           '.assert_no_cyclic_dependencies')
-    def test_adds_dependency_and_retrieves_it(self, mock_assert_no_cycles):
+    def test_adds_dependency_and_retrieves_it(self):
         dependency = self.client.inter_deployment_dependencies.create(
             **self.dependency)
-        mock_assert_no_cycles.assert_called()
         response = self.client.inter_deployment_dependencies.list()
         if response:
-            self.assertDictEqual(dependency, response[0])
+            self.assertEqual(dependency, response[0])
         else:
             raise NotFoundError(**self.dependency)
 
@@ -182,37 +180,44 @@ class InterDeploymentDependenciesTest(BaseServerTestCase):
     def test_adding_cyclic_dependency_fails(self):
         self._populate_dependencies_table()
         # 1,2,4 all depend on 1; 3 depends on 1 and 2; 5 depends on 4
-        dep_graph = RecursiveDeploymentDependencies(self.sm)
-        dep_graph.create_dependencies_graph()
         # 3 depends on 0. NOT a cycle
-        dep_graph.assert_no_cyclic_dependencies('3', '0')
+        self.client.inter_deployment_dependencies.create(
+            dependency_creator='',
+            source_deployment='3',
+            target_deployment='0',
+        )
         # 0 depends on 3. Cycle! 0 -> 1 or 2 -> 3 -> 0
-        with self.assertRaisesRegex(ConflictError, 'cyclic inter-deployment'):
-            dep_graph.assert_no_cyclic_dependencies('0', '3')
+        with self.assertRaisesRegex(CloudifyClientError, 'cyclic'):
+            self.client.inter_deployment_dependencies.create(
+                dependency_creator='',
+                source_deployment='0',
+                target_deployment='3',
+            )
         # 4 depends on 5. Cycle! 4 -> 5 -> 4
-        with self.assertRaisesRegex(ConflictError, 'cyclic inter-deployment'):
-            dep_graph.assert_no_cyclic_dependencies('4', '5')
+        with self.assertRaisesRegex(CloudifyClientError, 'cyclic'):
+            self.client.inter_deployment_dependencies.create(
+                dependency_creator='',
+                source_deployment='4',
+                target_deployment='5',
+            )
 
     def test_retrieve_dependent_deployments(self):
         self._populate_dependencies_table()
         # 1,2,4 all depend on 1; 3 depends on 1 and 2; 5 depends on 4
-        dep_graph = RecursiveDeploymentDependencies(self.sm)
-        dep_graph.create_dependencies_graph()
+        dep = self.sm.get(models.Deployment, '0')
+        dependents = dep.get_dependents()
+        assert len(dependents) == 5
+        assert {'1', '2', '3', '4', '5'} == {
+            dep.id for dep in dependents
+        }
 
-        # for deployment '0':
-        dependencies = dep_graph.retrieve_dependent_deployments('0')
-        self.assertEqual(len(dependencies), 6)
-        self.assertEqual(set([x['deployment'] for x in dependencies]),
-                         {'1', '2', '3', '4', '5'})
-        self.assertEqual(set([x['dependency_type'] for x in dependencies]),
-                         {'deployment', 'component', 'sharedresource'})
-
-        # for deployment '4':
-        dependencies = dep_graph.retrieve_dependent_deployments('4')
-        self.assertEqual(len(dependencies), 1)
-        self.assertEqual(dependencies[0]['deployment'], '5')
-        self.assertEqual(dependencies[0]['dependency_type'], 'deployment')
-        self.assertEqual(dependencies[0]['dependent_node'], 'ip')
+    def test_retrieve_dependency_deployments(self):
+        self._populate_dependencies_table()
+        # import pudb; pu.db
+        dep_5 = self.sm.get(models.Deployment, '5')
+        dependencies = dep_5.get_all_dependencies()
+        assert len(dependencies) == 2
+        assert {'0', '4'} == {dep.id for dep in dependencies}
 
     def test_retrieve_dependencies_app_with_components(self):
         # create an IDD system with the following:
@@ -257,14 +262,15 @@ class InterDeploymentDependenciesTest(BaseServerTestCase):
 
     def test_alerts_uninstall_deployment(self):
         self._prepare_dependent_deployments()
-        self.assertRaisesRegex(
-            CloudifyClientError,
-            '1] Deployment `app` uses a shared resource from the current '
-            'deployment in its node `vm`',
-            self.client.executions.start,
-            'infra',
-            'uninstall'
-        )
+        with self.record_queries() as queries:
+            self.assertRaisesRegex(
+                CloudifyClientError,
+                '1] Deployment `app` uses a shared resource from the current '
+                'deployment in its node `vm`',
+                self.client.executions.start,
+                'infra',
+                'uninstall'
+            )
 
     def test_alerts_update_deployment(self):
         self._prepare_dependent_deployments()

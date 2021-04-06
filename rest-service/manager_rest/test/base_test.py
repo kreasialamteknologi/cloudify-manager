@@ -13,23 +13,27 @@
 #  * See the License for the specific language governing permissions and
 #  * limitations under the License.
 
-import os
 import json
-import time
-import uuid
-import shutil
 import logging
-import zipfile
-import tarfile
-import unittest
-import tempfile
+import os
+import requests
+import shutil
 import sqlalchemy.exc
-
-import yaml
+import tarfile
+import tempfile
+import time
+import unittest
+import uuid
 import wagon
 import psycopg2
 import requests
 import traceback
+import yaml
+import zipfile
+
+from contextlib import contextmanager
+from setuptools import archive_util
+
 
 from flask_migrate import Migrate, upgrade
 from mock import MagicMock, patch
@@ -636,6 +640,18 @@ class BaseServerTestCase(unittest.TestCase):
         finally:
             tarfile_.close()
         return tar_path
+
+    @contextmanager
+    def record_queries(self):
+        from sqlalchemy import event
+        queries = []
+        def _add_query(_conn, _cur, statement, *args):
+            queries.append(statement)
+        event.listen(db.engine, 'before_cursor_execute', _add_query)
+        try:
+            yield queries
+        finally:
+            event.remove(db.engine, 'before_cursor_execute', _add_query)
 
     def post(self, resource_path, data, query_params=None):
         url = self._version_url(resource_path)

@@ -127,54 +127,60 @@ class DeploymentsId(resources_v1.DeploymentsId):
         return deployment
 
     @staticmethod
-    def _update_deployment_counts(rm, graph, dep, new_labels):
-        new_types, deleted_types = \
+    def _update_deployment_counts(rm, dep, new_labels):
+        created_types, deleted_types = \
             rm.get_deployment_object_types_from_labels(
                 dep, new_labels
             )
-        is_converted = \
-            rm.update_resource_counts_after_source_conversion(graph, dep,
-                                                              new_types,
-                                                              deleted_types)
-        return is_converted
+        to_srv = dep.is_environment and 'environment' in deleted_types
+        to_env = not dep.is_environment and 'environment' in created_types
+        if not to_srv and not to_env:
+            return
+        sm = get_storage_manager()
+        with sm.transaction():
+            ancestors = dep.get_ancestors(locking=True)
+            for ancestor in ancestors:
+                if to_srv:
+                    ancestor.sub_services_count += 1
+                    ancestor.sub_environments_count -= 1
+                else:
+                    ancestor.sub_services_count -= 1
+                    ancestor.sub_environments_count += 1
+                sm.update(ancestor)
 
     @staticmethod
     def _update_labels_for_deployment(rm, deployment, new_labels):
         graph = None
         sm = get_storage_manager()
         deployment_parents = deployment.deployment_parents
-        parents_labels = rm.get_deployment_parents_from_labels(
-            new_labels
-        )
-        _parents_to_add = set(parents_labels) - set(
-            deployment_parents
-        )
-        _parents_to_remove = set(deployment_parents) - set(
-            parents_labels
-        )
-        if _parents_to_add or _parents_to_remove:
-            graph = rest_utils.RecursiveDeploymentLabelsDependencies(sm)
-            graph.create_dependencies_graph()
+        new_parents = rm.get_deployment_parents_from_labels(new_labels)
 
-        if _parents_to_add:
-            rm.verify_attaching_deployment_to_parents(
-                graph,
-                _parents_to_add,
-                deployment.id
-            )
+        parents_to_add = [sm.get(models.Deployment, parent_id)
+                          for parent_id in
+                          set(new_parents) - set(deployment_parents)]
+        parents_to_remove = [sm.get(models.Deployment, parent_id)
+                             for parent_id in
+                             set(deployment_parents) - set(new_parents)]
+
+
+        if parents_to_add:
+            dependents = deployment.get_all_dependents()
+            for parent in parents_to_add:
+                if parent in dependents:
+                    raise manager_exceptions.ConflictError(
+                        f'cannot add parent: cyclic dependency between '
+                        f'{deployment.id} and {parent.id}')
+
         rm.update_resource_labels(
             models.DeploymentLabel,
             deployment,
             new_labels
         )
-        if graph:
-            parents = {
-                'parents_to_add': _parents_to_add,
-                'parents_to_remove': _parents_to_remove
-            }
-            rm.handle_deployment_labels_graph(
-                graph, parents, deployment
-            )
+
+        for parent in parents_to_add:
+            rm.add_deployment_to_labels_graph(deployment, parent)
+        for parent in parents_to_remove:
+            rm.delete_deployment_from_labels_graph(deployment, parent)
 
     def _handle_deployment_labels(self, sm, rm, deployment, raw_labels_list):
         new_labels = rest_utils.get_labels_list(raw_labels_list)
@@ -182,8 +188,7 @@ class DeploymentsId(resources_v1.DeploymentsId):
             self._add_existing_labels(deployment, new_labels)
 
         graph = rest_utils.RecursiveDeploymentLabelsDependencies(sm)
-        is_updated = self._update_deployment_counts(rm, graph, deployment,
-                                                    new_labels)
+        is_updated = self._update_deployment_counts(rm, deployment, new_labels)
         self._update_labels_for_deployment(rm, deployment, new_labels)
         if is_updated:
             for dep in deployment.deployment_parents:
@@ -432,11 +437,13 @@ class InterDeploymentDependencies(SecuredResource):
                 EXTERNAL_SOURCE not in params and
                 EXTERNAL_TARGET not in params):
             # assert no cyclic dependencies are created
-            dep_graph = rest_utils.RecursiveDeploymentDependencies(sm)
-            source_id = str(params[SOURCE_DEPLOYMENT].id)
-            target_id = str(params[TARGET_DEPLOYMENT].id)
-            dep_graph.create_dependencies_graph()
-            dep_graph.assert_no_cyclic_dependencies(source_id, target_id)
+            dependents = params[SOURCE_DEPLOYMENT].get_all_dependents()
+            if params[TARGET_DEPLOYMENT] in dependents:
+                raise manager_exceptions.ConflictError(
+                    f'cyclic dependency between deployments '
+                    f'{params[SOURCE_DEPLOYMENT].id} '
+                    f'and {params[TARGET_DEPLOYMENT].id}'
+                )
 
         source_deployment = None if EXTERNAL_SOURCE in params \
             else params[SOURCE_DEPLOYMENT]
