@@ -84,6 +84,8 @@ def setup_resources(api):
             'deployment-updates/<string:id>/update/<string:phase>',
         'DeploymentUpdateId': 'deployment-updates/<string:update_id>',
         'DeploymentUpdates': 'deployment-updates',
+        'NewDeploymentUpdates': 'deployment-update',
+        'NewDeploymentUpdatesId': 'deployment-update/<string:update_id>',
         'Tenants': 'tenants',
         'TenantsId': 'tenants/<string:tenant_name>',
         'TenantUsers': 'tenants/users',

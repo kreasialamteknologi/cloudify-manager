@@ -976,6 +976,7 @@ class DeploymentGroupsId(SecuredResource):
             deployment_count = len(group.deployments)
             create_exec_group = models.ExecutionGroup(
                 id=str(uuid.uuid4()),
+                concurrency=20,
                 deployment_group=group,
                 workflow_id='create_deployment_environment',
                 visibility=group.visibility,

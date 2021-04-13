@@ -13,14 +13,17 @@
 #  * See the License for the specific language governing permissions and
 #  * limitations under the License.
 
+import uuid
 from os.path import join
 from shutil import copytree, rmtree
 
 from flask import request
 from flask_restful_swagger import swagger
 
+from cloudify.models_states import ExecutionState
 from manager_rest.security import SecuredResource
 from manager_rest import manager_exceptions, config
+from manager_rest.resource_manager import get_resource_manager
 from manager_rest.security.authorization import authorize
 from manager_rest.deployment_update.constants import PHASES
 from manager_rest.storage import models, get_storage_manager
@@ -34,7 +37,7 @@ from manager_rest.utils import (create_filter_params_list_description,
                                 current_tenant)
 
 from .. import rest_decorators
-from ..rest_utils import verify_and_convert_bool
+from ..rest_utils import verify_and_convert_bool, get_json_and_verify_params
 
 
 class DeploymentUpdate(SecuredResource):
@@ -277,3 +280,89 @@ def _get_plugin_update_blueprint_abs_path(server_root, blueprint):
         return get_blueprint_abs_path(blueprint)
     original_blueprint = blueprint.temp_of_plugins_update[0].blueprint
     return get_blueprint_abs_path(original_blueprint)
+
+
+class NewDeploymentUpdates(SecuredResource):
+    @authorize('deployment_update_list', allow_all_tenants=True)
+    @rest_decorators.marshal_with(models.DeploymentUpdate)
+    @rest_decorators.create_filters(models.DeploymentUpdate)
+    @rest_decorators.paginate
+    @rest_decorators.sortable(models.DeploymentUpdate)
+    def get(self, _include=None, filters=None, pagination=None, sort=None,
+            all_tenants=None):
+        """List deployment updates"""
+        get_all_results = verify_and_convert_bool(
+            '_get_all_results',
+            request.args.get('_get_all_results', False)
+        )
+        return get_storage_manager().list(
+            models.DeploymentUpdate,
+            include=_include,
+            filters=filters,
+            pagination=pagination,
+            sort=sort,
+            all_tenants=all_tenants,
+            get_all_results=get_all_results
+        )
+
+    @authorize('deployment_update_create')
+    @rest_decorators.marshal_with(models.DeploymentUpdate, force_get_data=True)
+    def post(self):
+        request_dict = get_json_and_verify_params({
+            'skip_install': {'optional': True, 'type': bool},
+            'skip_uninstall': {'optional': True, 'type': bool},
+            'skip_reinstall': {'optional': True, 'type': bool},
+            'ignore_failure': {'optional': True, 'type': bool},
+            'install_first': {'optional': True, 'type': bool},
+            'preview': {'optional': True, 'type': bool},
+            'update_plugins': {'optional': True, 'type': bool},
+            'runtime_only_evaluation': {'optional': True, 'type': bool},
+            'auto_correct_types': {'optional': True, 'type': bool},
+            'reevaluate_active_statuses': {'optional': True, 'type': bool},
+            'force': {'optional': True, 'type': bool},
+
+            'workflow_id': {'optional': True},
+            'inputs': {'optional': True, 'type': dict},
+            'reinstall_list': {'optional': True, 'type': list},
+            'blueprint_id': {'optional': True, 'type': str},
+            'deployment_id': {'type': str},
+        })
+        sm = get_storage_manager()
+        rm = get_resource_manager()
+        with sm.transaction():
+            deployment = sm.get(
+                models.Deployment, request_dict['deployment_id'])
+            if request_dict.get('blueprint_id'):
+                blueprint = sm.get(
+                    models.Blueprint, request_dict['blueprint_id'])
+            else:
+                blueprint = deployment.blueprint
+            dep_up = models.DeploymentUpdate(
+                id=f'{deployment.id}-{uuid.uuid4()}',
+                runtime_only_evaluation=
+                request_dict.get('runtime_only_evaluation', False),
+                preview=request_dict.get('preview', False),
+                new_blueprint=blueprint,
+                new_inputs=request_dict.get('inputs', {}),
+                deployment=deployment,
+            )
+            sm.put(dep_up)
+            execution = models.Execution(
+                workflow_id='update_deployment',
+                deployment=deployment,
+                parameters={
+                    'deployment_update_id': dep_up.id,
+                    'preview': request_dict.get('preview', False),
+                },
+                status=ExecutionState.PENDING,
+            )
+            sm.put(execution)
+        rm.execute_workflow(execution, queue=True)
+        return dep_up
+
+
+class NewDeploymentUpdatesId(SecuredResource):
+    @authorize('deployment_update_get')
+    @rest_decorators.marshal_with(models.DeploymentUpdate)
+    def get(self, update_id):
+        return get_storage_manager().get(models.DeploymentUpdate, update_id)

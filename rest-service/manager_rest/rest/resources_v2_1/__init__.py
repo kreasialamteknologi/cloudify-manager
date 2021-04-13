@@ -16,7 +16,9 @@
 from .deployment_update import (    # NOQA
     DeploymentUpdate,
     DeploymentUpdateId,
-    DeploymentUpdates
+    DeploymentUpdates,
+    NewDeploymentUpdates,
+    NewDeploymentUpdatesId,
 )
 
 from .maintenance_mode import (     # NOQA
