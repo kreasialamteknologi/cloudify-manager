@@ -74,7 +74,7 @@ def clean_deployment_dirs():
         else:
             succeeded_deps.append(dep)
 
-    logging.info('Cleaned %s deployments, failed %s deployments',
+    logging.info('Cleaned %d deployments, failed %d deployments',
                  len(succeeded_deps), len(failed_deps))
     if failed_deps:
         logging.info('Failed deployments: %s',
