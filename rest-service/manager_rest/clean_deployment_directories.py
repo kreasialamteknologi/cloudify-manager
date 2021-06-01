@@ -42,10 +42,10 @@ def find_deployment_workdir(dep):
 def clean_deployment_dir(dep, blueprint_files):
     """Remove files in dep's dir that are also in bp's dir"""
     dep_dir = find_deployment_workdir(dep)
-    if dep.blueprint_id not in blueprint_files:
-        blueprint_files[dep.blueprint_id] = find_blueprint_files(dep.blueprint)
+    if dep._blueprint_fk not in blueprint_files:
+        blueprint_files[dep._blueprint_fk] = find_blueprint_files(dep.blueprint)
     for fn in os.listdir(dep_dir):
-        if fn in blueprint_files[dep.blueprint_id]:
+        if fn in blueprint_files[dep._blueprint_fk]:
             to_remove = os.path.join(dep_dir, fn)
             if os.path.isdir(to_remove):
                 shutil.rmtree(to_remove)
@@ -58,7 +58,6 @@ def clean_deployment_dirs():
     deps = (
         models.Deployment.query
         .join(models.Tenant)
-        .join(models.Blueprint)
         .all()
     )
     logging.info('Found %s deployments', len(deps))
