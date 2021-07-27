@@ -21,7 +21,7 @@ from cloudify_rest_client.executions import Execution
 from integration_tests import AgentlessTestCase
 from integration_tests.tests.utils import get_resource as resource
 
-pytestmark = pytest.mark.group_workflows
+# pytestmark = pytest.mark.group_workflows
 
 
 @pytest.mark.usefixtures('mock_workflows_plugin')

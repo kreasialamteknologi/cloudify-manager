@@ -19,7 +19,7 @@ import pytest
 from integration_tests import AgentlessTestCase
 from integration_tests.tests import utils
 
-pytestmark = pytest.mark.group_workflows
+# pytestmark = pytest.mark.group_workflows
 
 
 @pytest.mark.usefixtures('mock_workflows_plugin')

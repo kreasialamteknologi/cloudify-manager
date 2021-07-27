@@ -34,7 +34,7 @@ from integration_tests.tests.utils import (run_postgresql_command,
 from cloudify.models_states import ExecutionState as Execution
 from cloudify_rest_client.exceptions import CloudifyClientError
 
-pytestmark = pytest.mark.group_workflows
+# pytestmark = pytest.mark.group_workflows
 
 
 @pytest.mark.usefixtures('cloudmock_plugin')

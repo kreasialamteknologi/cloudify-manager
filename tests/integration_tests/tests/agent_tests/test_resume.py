@@ -20,7 +20,7 @@ import pytest
 from integration_tests import AgentTestCase
 from integration_tests.tests.utils import get_resource as resource
 
-pytestmark = pytest.mark.group_workflows
+# pytestmark = pytest.mark.group_workflows
 
 
 # log messages that are emitted by cloudmock.tasks.task_agent. We're waiting
