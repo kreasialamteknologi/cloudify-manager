@@ -74,6 +74,8 @@ class BasicWorkflowsTest(AgentlessTestCase):
         events = self.client.events.list(
             execution_id=execution.id, include_logs=True)
 
+        for ev in events:
+            print('event', ev)
         # check that the expected logs exist - and that they're
         # in the correct order
         seen_logs = [event['message'] for event in events
