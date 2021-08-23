@@ -19,7 +19,6 @@ depends_on = None
 
 TABLES_TO_AUDIT = [('agents', 'storage_id'),
                    ('blueprints', 'storage_id'),
-                   ('blueprints', 'storage_id'),
                    ('blueprints_filter', 'storage_id'),
                    ('blueprints_labels', 'id'),
                    ('certificates', 'id'),
@@ -54,8 +53,7 @@ TABLES_TO_AUDIT = [('agents', 'storage_id'),
                    ('tasks_graphs', 'storage_id'),
                    ('tenants', 'id'),
                    ('usage_collector', 'id'),
-                   ('users', 'id'),
-                  ]
+                   ('users', 'id')]
 
 
 def upgrade():
